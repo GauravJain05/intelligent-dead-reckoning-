@@ -4,3 +4,5 @@ matplotlib
 termcolor
 scipy
 navpy
+pandas
+matplotlib
