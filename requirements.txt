@@ -1,8 +1,8 @@
 torch
 numpy
-matplotlib
-termcolor
 scipy
-navpy
 pandas
 matplotlib
+navpy
+pymap3d
+termcolor

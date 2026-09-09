@@ -18,7 +18,7 @@ import torch
 # Ensure src directory is on sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from dataset_iovnbd import IOVNBDataset
+from dataset_iovnbd import IOVNBDDataset
 from iekf import NUMPYIEKF, TORCHIEKF, IOVNBParameters
 
 
@@ -50,7 +50,7 @@ def run_simulation(args):
 
     # 2. Load IO-VNBD Dataset
     print(f"Loading dataset from: {args.data_path} (max_rows={args.max_rows})...")
-    dataset = IOVNBDataset(csv_path=args.data_path, max_rows=args.max_rows)
+    dataset = IOVNBDDataset(csv_path=args.data_path, max_rows=args.max_rows)
     t, ang_gt, p_gt, v_gt, u = dataset.get_data()
     N = len(t)
     print(f"Loaded {N} timesteps ({t[-1] - t[0]:.1f} seconds of vehicle trip).")
