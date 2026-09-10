@@ -87,11 +87,25 @@ def run_simulation(args):
         print(f"WARNING: no trained weights found at {weights_path} -- "
               f"running with UNTRAINED (random) network. Run src/run_train.py first.")
 
-    # Normalize inputs for MesNet 1D ConvNet
+        # Normalize inputs for MesNet 1D ConvNet
+    # IMPORTANT: use the SAME normalization stats computed during training,
+    # not ones recomputed from this eval subset -- mismatched stats feed
+    # the network out-of-distribution inputs and produce garbage covariances.
+    norm_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "results", "norm_factors.p"
+    )
     u_t = torch.from_numpy(u).double()
-    torch_iekf.u_loc = u_t.mean(dim=0)
-    torch_iekf.u_std = u_t.std(dim=0) + 1e-6
-
+    if os.path.isfile(norm_path):
+        norm_dict = torch.load(norm_path, map_location="cpu")
+        torch_iekf.u_loc = norm_dict['u_loc']
+        torch_iekf.u_std = norm_dict['u_std']
+        print(f"Loaded TRAINING normalization stats from {norm_path}")
+    else:
+        torch_iekf.u_loc = u_t.mean(dim=0)
+        torch_iekf.u_std = u_t.std(dim=0) + 1e-6
+        print("WARNING: no saved training normalization stats found -- "
+              "recomputing from eval data (may mismatch training).")
     print("Computing dynamic measurement noise covariance predictions via MesNet...")
     measurements_covs = torch_iekf.forward_nets(u_t).detach().cpu().numpy()
     iekf.set_learned_covariance(torch_iekf)
@@ -149,7 +163,7 @@ def run_simulation(args):
 
     print("\nRunning state estimation loop across all 3 modes...")
     sim_start_time = time.time()
-
+    zupt_count = 0
     for i in range(1, N):
         dt_i = dt[i - 1]
 
@@ -184,6 +198,19 @@ def run_simulation(args):
                 iekf.update(Rot_curr, v_curr, p_curr, b_omega_curr, b_acc_curr,
                             Rot_c_i_curr, t_c_i_curr, P_curr, u[i], i, measurements_covs[i])
 
+            # ---- ZUPT: catches FORWARD-direction drift that NHC alone can't ----
+            # NHC only constrains lateral/vertical velocity; it cannot correct
+            # forward drift from accelerometer bias. Detect near-stationary
+            # moments using IMU-only signals (no GPS -- valid during blackout)
+            # and reset velocity to curb runaway forward drift.
+            accel_win = u[max(0, i - 20):i + 1, 3:6]
+            gyro_win = u[max(0, i - 20):i + 1, 0:3]
+            accel_var = float(np.var(np.linalg.norm(accel_win, axis=1)))
+            gyro_mag_mean = float(np.mean(np.linalg.norm(gyro_win, axis=1)))
+            if accel_var < 0.3 and gyro_mag_mean < 0.15:
+                v_curr = np.zeros(3)
+                zupt_count += 1
+
             # Periodic numerical normalization
             if i % iekf.n_normalize_rot == 0:
                 Rot_curr = iekf.normalize_rot(Rot_curr)
@@ -208,6 +235,7 @@ def run_simulation(args):
 
     sim_elapsed = time.time() - sim_start_time
     print(f"State estimation completed in {sim_elapsed:.2f}s.")
+    print(f"ZUPT triggered on {zupt_count} / {t_end - t_start} blackout samples ({100*zupt_count/(t_end-t_start):.1f}%)")
 
     # 8. Compute Benchmark Metrics on Blackout Window
     outage_gt = p_gt[t_start:t_end]

@@ -63,12 +63,19 @@ def train_filter(args, dataset):
     optimizer = set_optimizer(iekf)
     start_time = time.time()
 
+    best_loss = float('inf')
     for epoch in range(1, args.epochs + 1):
-        train_loop(args, dataset, epoch, iekf, optimizer, args.seq_dim)
-        save_iekf(args, iekf)
+        loss = train_loop(args, dataset, epoch, iekf, optimizer, args.seq_dim)
+        if loss is not None:
+            loss_val = loss.item() if torch.is_tensor(loss) else loss
+            if loss_val < best_loss:
+                best_loss = loss_val
+                save_iekf(args, iekf)
+                print("  -> New BEST loss {:.5f}, checkpoint saved.".format(best_loss))
         print("Amount of time spent for 1 epoch: {}s\n".format(int(time.time() - start_time)))
         start_time = time.time()
 
+    print("\nTraining finished. Best loss achieved: {:.5f}".format(best_loss))
 
 def prepare_filter(args, dataset):
     iekf = TORCHIEKF()
@@ -185,6 +192,8 @@ def train_loop(args, dataset, epoch, iekf, optimizer, seq_dim):
 def save_iekf(args, iekf):
     file_name = os.path.join(args.path_temp, "iekfnets.p")
     torch.save(iekf.state_dict(), file_name)
+    norm_file = os.path.join(args.path_temp, "norm_factors.p")
+    torch.save({'u_loc': iekf.u_loc, 'u_std': iekf.u_std}, norm_file)
     print("The IEKF nets are saved in the file " + file_name)
 
 

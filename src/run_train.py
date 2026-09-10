@@ -11,7 +11,7 @@ from iekf import IOVNBParameters   # FIXED: was "from utils_torch_filter import 
                                      # (that class doesn't exist there -- IOVNBParameters lives in iekf.py)
 
 class Args:
-    epochs = 40
+    epochs = 400
     seq_dim = 200               # 200 IMU timesteps per mini-batch window
     continue_training = False
     parameter_class = IOVNBParameters   # FIXED: was TorchIEKFParameters
