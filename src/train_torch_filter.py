@@ -50,8 +50,17 @@ def compute_delta_p(Rot, p):
 
         idxs_0 = list_rpe[0]
         idxs_end = list_rpe[1]
-        delta_p = Rot[idxs_0].transpose(-1, -2).matmul(
-            ((p[idxs_end] - p[idxs_0]).float()).unsqueeze(-1)).squeeze()
+        if len(idxs_0) == 0:
+            list_rpe[2] = torch.empty((0, 3), dtype=torch.float32)
+            return list_rpe
+            
+        dp_diff = (p[idxs_end] - p[idxs_0]).float()
+        if dp_diff.dim() == 1:
+            dp_diff = dp_diff.unsqueeze(0)
+            
+        delta_p = Rot[idxs_0].transpose(-1, -2).matmul(dp_diff.unsqueeze(-1)).squeeze(-1)
+        if delta_p.dim() == 1:
+            delta_p = delta_p.unsqueeze(0)
         list_rpe[2] = delta_p
     return list_rpe
 
@@ -261,20 +270,33 @@ def precompute_lost(Rot, p, list_rpe, N0):
     N = p.shape[0]
     Rot_10_Hz = Rot[::10]
     p_10_Hz = p[::10]
-    idxs_0 = torch.Tensor(list_rpe[0]).clone().long() - int(N0 / 10)
-    idxs_end = torch.Tensor(list_rpe[1]).clone().long() - int(N0 / 10)
+    
+    if len(list_rpe[0]) == 0:
+        return None, None
+
+    idxs_0 = torch.tensor(list_rpe[0], dtype=torch.long) - int(N0 / 10)
+    idxs_end = torch.tensor(list_rpe[1], dtype=torch.long) - int(N0 / 10)
     delta_p_gt = list_rpe[2]
-    idxs = torch.Tensor(idxs_0.shape[0]).byte()
-    idxs[:] = 1
-    idxs[idxs_0 < 0] = 0
-    idxs[idxs_end >= int(N / 10)] = 0
-    delta_p_gt = delta_p_gt[idxs]
-    idxs_end_bis = idxs_end[idxs]
-    idxs_0_bis = idxs_0[idxs]
-    if len(idxs_0_bis) is 0: 
-        return None, None     
-    else:
-        delta_p = Rot_10_Hz[idxs_0_bis].transpose(-1, -2).matmul(
-        (p_10_Hz[idxs_end_bis] - p_10_Hz[idxs_0_bis]).unsqueeze(-1)).squeeze()
-        distance = delta_p_gt.norm(dim=1).unsqueeze(-1)
-        return delta_p.double() / distance.double(), delta_p_gt.double() / distance.double() 
+    if delta_p_gt.dim() == 1:
+        delta_p_gt = delta_p_gt.unsqueeze(0)
+
+    # Use standard boolean indexing
+    mask = (idxs_0 >= 0) & (idxs_end < int(N / 10))
+    
+    if not mask.any():
+        return None, None
+
+    delta_p_gt = delta_p_gt[mask]
+    idxs_0_bis = idxs_0[mask]
+    idxs_end_bis = idxs_end[mask]
+
+    diff = (p_10_Hz[idxs_end_bis] - p_10_Hz[idxs_0_bis]).unsqueeze(-1)
+    delta_p = Rot_10_Hz[idxs_0_bis].transpose(-1, -2).matmul(diff).squeeze(-1)
+    
+    if delta_p.dim() == 1:
+        delta_p = delta_p.unsqueeze(0)
+    if delta_p_gt.dim() == 1:
+        delta_p_gt = delta_p_gt.unsqueeze(0)
+
+    distance = delta_p_gt.norm(dim=1, keepdim=True).clamp(min=1e-3)
+    return delta_p.double() / distance.double(), delta_p_gt.double() / distance.double()

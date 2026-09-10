@@ -204,17 +204,34 @@ class IOVNBDDataset(Dataset):
         )
 
     def _load_all(self):
-        csv_files = list(Path(self.data_dir).rglob("S-*.csv"))
+        # Match only smartphone IMU files (S-*.csv), excluding vehicle OBD files (V-*.csv)
+        csv_files = [
+            f for f in Path(self.data_dir).rglob("*.csv")
+            if f.name.startswith("S-") and not f.name.startswith(".")
+        ]
+        
         if not csv_files:
-            raise FileNotFoundError(f"No smartphone data found in directory: {self.data_dir}")
+            raise FileNotFoundError(f"No smartphone 'S-*.csv' data found in directory: {self.data_dir}")
 
         for file_path in csv_files:
-            seq_name = file_path.stem
-            t, ang, p, v, u = self._load_csv(str(file_path), max_rows=self.max_rows)
-            self.data[seq_name] = (t, ang, p, v, u)
+            # Generate a unique key containing the folder name (e.g., "M (Driver B)_S-M")
+            rel_path = file_path.relative_to(Path(self.data_dir))
+            seq_name = str(rel_path.with_suffix("")).replace(os.sep, "_")
+
+            try:
+                t, ang, p, v, u = self._load_csv(str(file_path), max_rows=self.max_rows)
+                # Ignore sequences that are too short to form a training batch
+                if len(t) < 300:
+                    continue
+                self.data[seq_name] = (t, ang, p, v, u)
+            except Exception as e:
+                print(f"Skipping {file_path.name} due to parsing error: {e}")
 
         seq_names = list(self.data.keys())
-        num_train = int(len(seq_names) * 0.9)
+        if not seq_names:
+            raise ValueError("No valid smartphone trajectory files could be parsed.")
+
+        num_train = int(len(seq_names) * 0.8)
         if len(seq_names) > 1 and len(seq_names) - num_train < 1:
             num_train = len(seq_names) - 1
 
@@ -240,8 +257,7 @@ class IOVNBDDataset(Dataset):
             u_std = concat_u.std(dim=0) + 1e-6
             self.normalize_factors = {'u_loc': u_loc, 'u_std': u_std}
 
-        print(f"Loaded {len(csv_files)} smartphone datasets (Train: {len(train_keys)}, Val: {len(val_keys)})")
-
+        print(f"Loaded {len(self.data)} smartphone trajectories (Train: {len(train_keys)}, Val: {len(val_keys)})")
     def __len__(self):
         return self.N
 

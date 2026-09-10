@@ -1,20 +1,19 @@
 import os
 import sys
+import torch
 
-# Ensure src is on path
 src_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(src_dir)
 
 from dataset_iovnbd import IOVNBDDataset
 from train_torch_filter import train_filter
-from iekf import IOVNBParameters   # FIXED: was "from utils_torch_filter import TorchIEKFParameters"
-                                     # (that class doesn't exist there -- IOVNBParameters lives in iekf.py)
+from iekf import IOVNBParameters
 
 class Args:
-    epochs = 400
-    seq_dim = 200               # 200 IMU timesteps per mini-batch window
+    epochs = 50
+    seq_dim = 200
     continue_training = False
-    parameter_class = IOVNBParameters   # FIXED: was TorchIEKFParameters
+    parameter_class = IOVNBParameters
     path_temp = os.path.join(os.path.dirname(src_dir), "results")
 
 if __name__ == "__main__":
@@ -22,12 +21,18 @@ if __name__ == "__main__":
     os.makedirs(args.path_temp, exist_ok=True)
 
     data_folder = os.path.join(os.path.dirname(src_dir), "data")
-    print(f"Loading dataset from: {data_folder}")
+    print(f"Loading multi-sequence IO-VNBD dataset from: {data_folder}")
     dataset = IOVNBDDataset(data_dir=data_folder)
 
-    print(f"Train sets: {list(dataset.datasets_train_filter.keys())}")
-    print(f"Val sets:   {list(dataset.datasets_validatation_filter.keys())}")
+    # Save normalization factors so evaluation uses exact training distributions
+    if dataset.normalize_factors is not None:
+        norm_file = os.path.join(args.path_temp, "norm_factors.p")
+        torch.save(dataset.normalize_factors, norm_file)
+        print(f"Exported training normalization parameters to: {norm_file}")
 
-    print("\nBeginning training...")
+    print(f"Training sequences:   {len(dataset.datasets_train_filter)}")
+    print(f"Validation sequences: {len(dataset.datasets_validatation_filter)}")
+
+    print("\nTraining MesNet & InitProcessCovNet on full multi-sequence dataset...")
     train_filter(args, dataset)
-    print("\nTraining completed! Saved weights to results/iekfnets.p")
+    print("\nTraining complete. Model weights saved to results/iekfnets.p")
