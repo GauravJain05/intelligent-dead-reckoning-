@@ -7,6 +7,7 @@ multi-sequence training (run_train.py / train_torch_filter.py).
 import os
 import sys
 import pickle
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import scipy.signal
@@ -203,27 +204,34 @@ class IOVNBDDataset(Dataset):
         )
 
     def _load_all(self):
-        train_file = os.path.join(self.data_dir, "S-M.csv")
-        val_file = os.path.join(self.data_dir, "S-S1.csv")
+        csv_files = list(Path(self.data_dir).rglob("S-*.csv"))
+        if not csv_files:
+            raise FileNotFoundError(f"No smartphone data found in directory: {self.data_dir}")
 
-        if os.path.isfile(train_file):
-            t, ang, p, v, u = self._load_csv(train_file, max_rows=self.max_rows)
-            self.data["S-M"] = (t, ang, p, v, u)
-            self.datasets_train_filter["S-M"] = [0, len(t)]
-            self.timestamps = t
-            self.ang_gt = ang
-            self.gt_p = p
-            self.gt_v = v
-            self.u = u
-            self.N = len(t)
+        for file_path in csv_files:
+            seq_name = file_path.stem
+            t, ang, p, v, u = self._load_csv(str(file_path), max_rows=self.max_rows)
+            self.data[seq_name] = (t, ang, p, v, u)
 
-        if os.path.isfile(val_file):
-            t, ang, p, v, u = self._load_csv(val_file, max_rows=self.max_rows)
-            self.data["S-S1"] = (t, ang, p, v, u)
-            self.datasets_validatation_filter["S-S1"] = [0, len(t)]
-        elif "S-M" in self.data:
-            # Fallback if S-S1 is not yet present
-            self.datasets_validatation_filter["S-M"] = [0, len(self.data["S-M"][0])]
+        seq_names = list(self.data.keys())
+        num_train = int(len(seq_names) * 0.9)
+        if len(seq_names) > 1 and len(seq_names) - num_train < 1:
+            num_train = len(seq_names) - 1
+
+        train_keys = seq_names[:num_train] if num_train > 0 else seq_names
+        val_keys = seq_names[num_train:] if num_train > 0 else seq_names
+
+        for k in train_keys:
+            t = self.data[k][0]
+            self.datasets_train_filter[k] = [0, len(t)]
+
+        for k in val_keys:
+            t = self.data[k][0]
+            self.datasets_validatation_filter[k] = [0, len(t)]
+
+        first_seq = train_keys[0]
+        self.timestamps, self.ang_gt, self.gt_p, self.gt_v, self.u = self.data[first_seq]
+        self.N = len(self.timestamps)
 
         all_u = [self.data[k][4] for k in self.datasets_train_filter.keys()]
         if all_u:
@@ -231,6 +239,8 @@ class IOVNBDDataset(Dataset):
             u_loc = concat_u.mean(dim=0)
             u_std = concat_u.std(dim=0) + 1e-6
             self.normalize_factors = {'u_loc': u_loc, 'u_std': u_std}
+
+        print(f"Loaded {len(csv_files)} smartphone datasets (Train: {len(train_keys)}, Val: {len(val_keys)})")
 
     def __len__(self):
         return self.N

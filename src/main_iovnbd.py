@@ -69,6 +69,24 @@ def run_simulation(args):
     torch_iekf.filter_parameters = IOVNBParameters()
     torch_iekf.set_param_attr()
 
+    # ------------------------------------------------------------------
+    # LOAD TRAINED WEIGHTS (this was previously missing -- without this,
+    # MesNet and InitProcessCovNet run with random, untrained weights,
+    # which is why earlier runs showed 116%+ drift instead of learned
+    # AI-corrected covariances).
+    # ------------------------------------------------------------------
+    weights_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "results", "iekfnets.p"
+    )
+    if os.path.isfile(weights_path):
+        mondict = torch.load(weights_path, map_location="cpu")
+        torch_iekf.load_state_dict(mondict)
+        print(f"Loaded TRAINED weights from {weights_path}")
+    else:
+        print(f"WARNING: no trained weights found at {weights_path} -- "
+              f"running with UNTRAINED (random) network. Run src/run_train.py first.")
+
     # Normalize inputs for MesNet 1D ConvNet
     u_t = torch.from_numpy(u).double()
     torch_iekf.u_loc = u_t.mean(dim=0)

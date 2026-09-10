@@ -10,16 +10,24 @@ Run this from the project root:
     python src/plot_raw_data.py
 """
 
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
 # ---- 1. Load the data ----
 DATA_PATH = "data/S-S1.csv"
+OUTPUT_DIR = "results"
 
-df = pd.read_csv(DATA_PATH)
+# encoding="latin1" is required -- this CSV contains a degree symbol (°)
+# in some column headers, which is not valid UTF-8 and will crash a
+# plain pd.read_csv(DATA_PATH) call.
+df = pd.read_csv(DATA_PATH, encoding="latin1")
 
 # Clean up column names (remove extra spaces, standardize)
 df.columns = [c.strip() for c in df.columns]
+
+# Make sure the output folder exists before we try to save anything into it
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 print("Columns found in CSV:")
 print(df.columns.tolist())
@@ -34,7 +42,7 @@ plt.ylabel("Latitude")
 plt.title("GPS Ground Truth Path (Session S1)")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("results/gps_path.png", dpi=150)
+plt.savefig(os.path.join(OUTPUT_DIR, "gps_path.png"), dpi=150)
 plt.show()
 
 # ---- 3. Plot raw accelerometer signals ----
@@ -50,7 +58,7 @@ axs[2].set_ylabel("Accel Z (m/s\u00b2)")
 axs[2].set_xlabel("Time (s)")
 fig.suptitle("Raw Accelerometer Signals (Session S1)")
 plt.tight_layout()
-plt.savefig("results/accelerometer_raw.png", dpi=150)
+plt.savefig(os.path.join(OUTPUT_DIR, "accelerometer_raw.png"), dpi=150)
 plt.show()
 
 # ---- 4. Plot raw gyroscope signals ----
@@ -64,7 +72,7 @@ axs[2].set_ylabel("Gyro Roll (rad/s)")
 axs[2].set_xlabel("Time (s)")
 fig.suptitle("Raw Gyroscope Signals (Session S1)")
 plt.tight_layout()
-plt.savefig("results/gyroscope_raw.png", dpi=150)
+plt.savefig(os.path.join(OUTPUT_DIR, "gyroscope_raw.png"), dpi=150)
 plt.show()
 
 print("\nDone. Plots saved in results/ folder.")
