@@ -7,13 +7,14 @@ sys.path.append(src_dir)
 
 from dataset_iovnbd import IOVNBDDataset
 from train_torch_filter import train_filter
-from utils_torch_filter import TorchIEKFParameters
+from iekf import IOVNBParameters   # FIXED: was "from utils_torch_filter import TorchIEKFParameters"
+                                     # (that class doesn't exist there -- IOVNBParameters lives in iekf.py)
 
 class Args:
     epochs = 40
     seq_dim = 200               # 200 IMU timesteps per mini-batch window
     continue_training = False
-    parameter_class = TorchIEKFParameters
+    parameter_class = IOVNBParameters   # FIXED: was TorchIEKFParameters
     path_temp = os.path.join(os.path.dirname(src_dir), "results")
 
 if __name__ == "__main__":
