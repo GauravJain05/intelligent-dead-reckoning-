@@ -72,15 +72,16 @@ def train_filter(args, dataset):
     optimizer = set_optimizer(iekf)
     start_time = time.time()
 
-    best_loss = float('inf')
+    best_loss = float('inf')  # track the best loss we've ever seen
+
     for epoch in range(1, args.epochs + 1):
         loss = train_loop(args, dataset, epoch, iekf, optimizer, args.seq_dim)
-        if loss is not None:
-            loss_val = loss.item() if torch.is_tensor(loss) else loss
-            if loss_val < best_loss:
-                best_loss = loss_val
-                save_iekf(args, iekf)
-                print("  -> New BEST loss {:.5f}, checkpoint saved.".format(best_loss))
+        if loss is not None and float(loss) < best_loss:
+            best_loss = float(loss)
+            save_iekf(args, iekf)
+            print(f"  -> New best loss {best_loss:.5f}, weights saved.")
+        else:
+            print(f"  -> No improvement (best so far: {best_loss:.5f}), weights NOT overwritten.")
         print("Amount of time spent for 1 epoch: {}s\n".format(int(time.time() - start_time)))
         start_time = time.time()
 

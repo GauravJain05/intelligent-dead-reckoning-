@@ -10,8 +10,13 @@ from train_torch_filter import train_filter
 from iekf import IOVNBParameters
 
 class Args:
+<<<<<<< HEAD
+    epochs = 1000
+    seq_dim = 200               # 200 IMU timesteps per mini-batch window
+=======
     epochs = 50
     seq_dim = 200
+>>>>>>> 82dfe9989e0327973630d940e5524b67fe149628
     continue_training = False
     parameter_class = IOVNBParameters
     path_temp = os.path.join(os.path.dirname(src_dir), "results")
