@@ -1,0 +1,58 @@
+.device-layout {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #F9FAFB;
+  position: relative;
+  overflow: hidden;
+}
+
+.device-layout.web-mode {
+  display: block;
+}
+
+.view-toggle {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 10000;
+}
+
+.device-container {
+  width: 100%;
+  height: 100vh;
+  transition: all 0.5s ease;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+.device-container.phone-frame {
+  width: 400px;
+  height: 850px;
+  max-height: 90vh;
+  aspect-ratio: 9 / 19.5;
+  border-radius: 40px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
+  border: 12px solid #1a1c23;
+  background-color: #FFFFFF;
+  position: relative;
+}
+
+.device-screen {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: transparent;
+}
+
+/* Scrollbar hiding for the phone screen */
+.device-container.phone-frame *::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+.device-container.phone-frame * {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

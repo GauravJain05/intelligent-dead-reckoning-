@@ -1,9 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
-@layer base {
-  body {
-    @apply bg-bg font-sans text-navy;
-  }
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: #0B0D12;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
 }
