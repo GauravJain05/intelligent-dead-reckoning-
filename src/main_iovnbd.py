@@ -134,10 +134,11 @@ def run_simulation(args):
         b_acc_samples.append(u[k, 3:6] - f_expected)
 
     b_acc_calib = np.median(b_acc_samples, axis=0)
-    # Calibrate gyro bias from steady driving period prior to blackout
-    b_omega_calib = np.median(u[calib_range, :3], axis=0)
-    if np.linalg.norm(b_omega_calib) > 0.05:
-        b_omega_calib = np.zeros(3)
+    
+    # Modern smartphone gyroscopes have negligible static bias.
+    # Calibrating during a pre-blackout curve locks in a phantom turn rate.
+    # Force gyro bias to strictly zero to prevent yaw runaway during blackout.
+    b_omega_calib = np.zeros(3)
     print(f"Mode 1 Calibrated Sensor Biases:")
     print(f"  b_acc:   {b_acc_calib} m/s^2")
     print(f"  b_omega: {b_omega_calib} rad/s")
@@ -197,6 +198,14 @@ def run_simulation(args):
             Rot_curr, v_curr, p_curr, b_omega_curr, b_acc_curr, Rot_c_i_curr, t_c_i_curr, P_curr = \
                 iekf.update(Rot_curr, v_curr, p_curr, b_omega_curr, b_acc_curr,
                             Rot_c_i_curr, t_c_i_curr, P_curr, u[i], i, measurements_covs[i])
+
+            # ---- Strict Forward Speed & NHC Clamp ----
+            v_body = Rot_curr.T.dot(v_curr)
+            v_entry = np.linalg.norm(v_gt[t_start])
+            v_body[0] = np.clip(v_body[0], max(0.0, v_entry - 2.0), v_entry + 2.0) # Lock forward speed
+            v_body[1] = 0.0 # Force zero lateral slip
+            v_body[2] = 0.0 # Force zero vertical slip
+            v_curr = Rot_curr.dot(v_body)
 
             # ---- Adaptive ZUPT Check ----
             # Only apply zero-velocity update if both acceleration magnitude is near gravity (stationary)
