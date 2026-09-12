@@ -1,0 +1,28 @@
+{
+  "total_frames": 1100,
+  "t_start": 200,
+  "t_end": 800,
+  "points": [
+    { "frame": 0, "mode": 1, "gt_x": 0.0, "gt_y": 0.0, "pred_x": 0.0, "pred_y": 0.0 },
+    { "frame": 50, "mode": 1, "gt_x": 25.0, "gt_y": 10.0, "pred_x": 25.0, "pred_y": 10.0 },
+    { "frame": 100, "mode": 1, "gt_x": 55.0, "gt_y": 25.0, "pred_x": 55.0, "pred_y": 25.0 },
+    { "frame": 150, "mode": 1, "gt_x": 90.0, "gt_y": 45.0, "pred_x": 90.0, "pred_y": 45.0 },
+    { "frame": 200, "mode": 2, "gt_x": 130.0, "gt_y": 70.0, "pred_x": 130.0, "pred_y": 70.0 },
+    { "frame": 250, "mode": 2, "gt_x": 175.0, "gt_y": 95.0, "pred_x": 176.2, "pred_y": 93.8 },
+    { "frame": 300, "mode": 2, "gt_x": 225.0, "gt_y": 120.0, "pred_x": 227.5, "pred_y": 117.2 },
+    { "frame": 350, "mode": 2, "gt_x": 280.0, "gt_y": 140.0, "pred_x": 284.1, "pred_y": 135.5 },
+    { "frame": 400, "mode": 2, "gt_x": 340.0, "gt_y": 155.0, "pred_x": 345.9, "pred_y": 149.1 },
+    { "frame": 450, "mode": 2, "gt_x": 400.0, "gt_y": 165.0, "pred_x": 408.0, "pred_y": 157.8 },
+    { "frame": 500, "mode": 2, "gt_x": 460.0, "gt_y": 170.0, "pred_x": 470.3, "pred_y": 161.4 },
+    { "frame": 550, "mode": 2, "gt_x": 520.0, "gt_y": 170.0, "pred_x": 532.8, "pred_y": 160.0 },
+    { "frame": 600, "mode": 2, "gt_x": 580.0, "gt_y": 165.0, "pred_x": 595.5, "pred_y": 153.8 },
+    { "frame": 650, "mode": 2, "gt_x": 640.0, "gt_y": 155.0, "pred_x": 658.4, "pred_y": 142.3 },
+    { "frame": 700, "mode": 2, "gt_x": 700.0, "gt_y": 140.0, "pred_x": 721.5, "pred_y": 125.6 },
+    { "frame": 750, "mode": 2, "gt_x": 755.0, "gt_y": 120.0, "pred_x": 779.8, "pred_y": 103.8 },
+    { "frame": 800, "mode": 3, "gt_x": 805.0, "gt_y": 95.0, "pred_x": 818.5, "pred_y": 88.0 },
+    { "frame": 830, "mode": 3, "gt_x": 830.0, "gt_y": 80.0, "pred_x": 830.0, "pred_y": 80.0 },
+    { "frame": 880, "mode": 1, "gt_x": 870.0, "gt_y": 55.0, "pred_x": 870.0, "pred_y": 55.0 },
+    { "frame": 940, "mode": 1, "gt_x": 920.0, "gt_y": 25.0, "pred_x": 920.0, "pred_y": 25.0 },
+    { "frame": 1000, "mode": 1, "gt_x": 970.0, "gt_y": 0.0, "pred_x": 970.0, "pred_y": 0.0 }
+  ]
+}

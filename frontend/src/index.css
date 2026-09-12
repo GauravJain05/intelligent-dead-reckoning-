@@ -1,16 +1,84 @@
+:root {
+  /* Palette Supply Design System Light Tokens */
+  --color-studio-cream: #f2f0e9;   /* Main background canvas */
+  --color-paper-white: #ffffff;    /* Elevated cards */
+  --color-ink-black: #141212;      /* Primary text + structural hairline borders */
+  --color-pencil-gray: #a1a0a0;    /* Muted/secondary text, placeholders */
+  --color-sage-wash: #dde5d8;      /* Tags, secondary buttons, list rows */
+  --color-studio-ivory: #d7d7c8;   /* Default card & panel fill */
+  --color-cobalt-command: #3051a8; /* Single CTA & active link accent */
+  
+  /* Trajectory Path Colors (UNTOUCHED - Required for Telemetry Contrast) */
+  --color-map-green: #228a56;   /* GNSS tracked path */
+  --color-slate: #566171;       /* Ground-truth blackout path (dashed) */
+  --color-drift-red: #ef4444;   /* DR estimate path */
+
+  /* Legacy Mapping Tokens for Compatibility */
+  --bg-level-0: var(--color-studio-cream);
+  --bg-level-1: var(--color-studio-ivory);
+  --bg-level-2: var(--color-paper-white);
+  --bg-level-3: var(--color-sage-wash);
+  
+  --text-primary: var(--color-ink-black);
+  --text-secondary: #4a4848;
+  --text-muted: var(--color-pencil-gray);
+  --border-subtle: var(--color-ink-black);
+  --border-focus: var(--color-cobalt-command);
+
+  /* Geometry & Shape Tokens */
+  --card-radius: 12px;
+  --btn-radius: 5px;
+  --pill-radius: 100px;
+  
+  /* Typography Tokens */
+  --font-display: 'esbuild', 'PP Editorial New', 'Syne', -apple-system, sans-serif;
+  --font-main: 'ppsupply', 'Inter', 'Söhne', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'PPSupplyMonoLight', 'JetBrains Mono', monospace;
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
-  font-family: 'Inter', sans-serif;
-  background-color: #0B0D12;
+  padding: 0;
+  background-color: var(--color-studio-cream);
+  color: var(--color-ink-black);
+  font-family: var(--font-main);
+  font-weight: 300;
+  font-size: 15px;
+  letter-spacing: -0.04em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
   width: 100%;
   min-height: 100vh;
+  background-color: var(--color-studio-cream);
 }
+
+/* Lenis Smooth Scroll CSS Rules */
+html.lenis, html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-scrolling iframe {
+  pointer-events: none;
+}
+

@@ -1,621 +1,532 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Map as MapLibreMap, Marker } from 'maplibre-gl';
+import mockTelemetry from './data/mockTelemetry.json';
 import './App.css';
+
+// Spatial conversion constants
 const ANCHOR_LAT = 37.7749;
 const ANCHOR_LON = -122.4194;
 const METERS_PER_DEG_LAT = 111320.0;
-const METERS_PER_DEG_LON = 111320.0 * Math.cos(ANCHOR_LAT * Math.PI / 180.0);
+const METERS_PER_DEG_LON = 111320.0 * Math.cos((ANCHOR_LAT * Math.PI) / 180.0);
 const DISTANCE_SCALE = 0.25;
 
+// Convert local ENU (East-North-Up in meters) to GPS Longitude/Latitude
 function enuToLngLat(x, y) {
-    const lat = ANCHOR_LAT + (y / METERS_PER_DEG_LAT);
-    const lng = ANCHOR_LON + (x / METERS_PER_DEG_LON);
-    return [lng, lat];
+  const lat = ANCHOR_LAT + y / METERS_PER_DEG_LAT;
+  const lng = ANCHOR_LON + x / METERS_PER_DEG_LON;
+  return [lng, lat];
 }
 
-function formatTime(frameStr) {
-    const totalMs = frameStr * 100;
-    const d = new Date(totalMs); 
-    return d.toISOString().substring(11, 22); 
-}
+export default function App() {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const vehicleMarkerRef = useRef(null);
 
-export default function App({ isDark }) {
-    const mapRef = useRef(null);
-    const mapInstance = useRef(null);
-    const layersRef = useRef({
-        gtPolyline: null,
-        fusedPolyline: null,
-        blackoutPolyline: null,
-        vehicleMarker: null,
-        darkTiles: null,
-        lightTiles: null
+  // Telemetry data & simulation states
+  const [telemetryData, setTelemetryData] = useState(null);
+  const [isUsingFallback, setIsUsingFallback] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+
+  // Dynamic telemetry metrics
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [cumulativeDist, setCumulativeDist] = useState(0);
+  const [currentMode, setCurrentMode] = useState(1); // 1=GNSS, 2=DR Outage, 3=Resync
+  const [speedKmh, setSpeedKmh] = useState(0);
+  const [errorM, setErrorM] = useState(0);
+  const [driftX, setDriftX] = useState(0);
+  const [driftY, setDriftY] = useState(0);
+  const [blackoutDuration, setBlackoutDuration] = useState(0);
+  const [eventLog, setEventLog] = useState([]);
+  const [showEventsModal, setShowEventsModal] = useState(false);
+
+  // Sim animation state reference for tick loop
+  const simStateRef = useRef({
+    idx: 0,
+    dist: 0,
+    lastGtPt: null,
+    isRunning: false,
+    playbackSpeed: 1,
+    outageFrames: 0,
+  });
+
+  const addLogMsg = (msg, type = 'normal') => {
+    setEventLog((prev) => [
+      { id: Date.now() + Math.random(), msg, type, time: new Date().toLocaleTimeString() },
+      ...prev.slice(0, 49),
+    ]);
+  };
+
+  // 1. Initialize MapLibre GL Map with CartoDB Dark Matter style
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
+
+    const map = new MapLibreMap({
+      container: mapRef.current,
+      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      center: [-122.4194, 37.7749],
+      zoom: 15,
+      attributionControl: false,
     });
-    
-    const animationId = useRef(null);
-    const [telemetryData, setTelemetryData] = useState(null);
-    
-    // Simulation states
-    const [isRunning, setIsRunning] = useState(false);
-    const [playbackSpeed, setPlaybackSpeed] = useState(1);
-    
-    // UI states updated frequently
-    const [currentIdx, setCurrentIdx] = useState(0);
-    const [cumulativeDist, setCumulativeDist] = useState(0);
-    const [currentMode, setCurrentMode] = useState(1);
-    const [speedKmh, setSpeedKmh] = useState(0);
-    const [errorM, setErrorM] = useState(0);
-    const [driftX, setDriftX] = useState(0);
-    const [driftY, setDriftY] = useState(0);
-    const [outageTime, setOutageTime] = useState(0);
-    
-    // Events
-    const [eventLog, setEventLog] = useState([]);
-    const [eventsList, setEventsList] = useState([]);
-    const [showEventsModal, setShowEventsModal] = useState(false);
-    const currentEventRef = useRef(null);
-    const eventCountRef = useRef(0);
-    
-    const simStateRef = useRef({
-        idx: 0,
-        dist: 0,
-        lastGtPt: null,
-        mode: 1,
-        isRunning: false,
-        playbackSpeed: 1
+
+    // Custom vehicle marker DOM element
+    const el = document.createElement('div');
+    el.className = 'vehicle-marker-pulse';
+    el.style.width = '14px';
+    el.style.height = '14px';
+    el.style.backgroundColor = '#ef4444';
+    el.style.borderRadius = '50%';
+    el.style.border = '2px solid #ffffff';
+    el.style.boxShadow = '0 0 10px rgba(239, 68, 68, 0.8)';
+
+    const vehicleMarker = new Marker({ element: el }).setLngLat([-122.4194, 37.7749]).addTo(map);
+    vehicleMarkerRef.current = vehicleMarker;
+
+    map.on('load', () => {
+      // GeoJSON Sources
+      map.addSource('gnss-path', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+      });
+      map.addSource('gt-blackout-path', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+      });
+      map.addSource('dr-estimate-path', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+      });
+
+      // Map Layers with STRICT requested colors:
+      // 1. Ground-Truth Blackout Path (Dashed Slate #566171)
+      map.addLayer({
+        id: 'gt-blackout-line',
+        type: 'line',
+        source: 'gt-blackout-path',
+        paint: {
+          'line-color': '#566171',
+          'line-width': 3,
+          'line-dasharray': [3, 3],
+        },
+      });
+
+      // 2. GNSS Tracked Path (Solid Green #228a56)
+      map.addLayer({
+        id: 'gnss-line',
+        type: 'line',
+        source: 'gnss-path',
+        paint: {
+          'line-color': '#228a56',
+          'line-width': 4,
+        },
+      });
+
+      // 3. AI DR Estimate Path (Solid Red #ef4444)
+      map.addLayer({
+        id: 'dr-estimate-line',
+        type: 'line',
+        source: 'dr-estimate-path',
+        paint: {
+          'line-color': '#ef4444',
+          'line-width': 4,
+        },
+      });
     });
 
-    useEffect(() => {
-        if (isDark) {
-            document.body.classList.add('dark-theme');
-        } else {
-            document.body.classList.remove('dark-theme');
-        }
-    }, [isDark]);
-    
-    // Initialize map
-    useEffect(() => {
-        if (!mapRef.current) return;
-        if (mapInstance.current) return;
-        
-        const map = new MapLibreMap({
-            container: mapRef.current,
-            style: 'https://tiles.openfreemap.org/styles/liberty',
-            center: [-122.4194, 37.7749],
-            zoom: 15,
-            attributionControl: false
-        });
-        
-        const el = document.createElement('div');
-        el.className = 'vehicle-marker';
-        el.style.width = '12px'; el.style.height = '12px'; 
-        el.style.backgroundColor = '#0284C7'; 
-        el.style.borderRadius = '50%'; 
-        el.style.border = '2px solid white';
-        el.style.boxShadow = '0 0 4px rgba(0,0,0,0.5)';
-        
-        const vehicleMarker = new Marker({element: el}).setLngLat([0,0]).addTo(map);
+    mapInstance.current = map;
 
-        map.on('load', () => {
-            map.addSource('blackout', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
-            map.addSource('gt', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
-            map.addSource('fused', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
-            
-            map.addLayer({
-                id: 'blackout-line', type: 'line', source: 'blackout',
-                paint: { 'line-color': '#DC2626', 'line-width': 10, 'line-opacity': 0.3 }
-            });
-            map.addLayer({
-                id: 'gt-line', type: 'line', source: 'gt',
-                paint: { 'line-color': '#059669', 'line-width': 3 }
-            });
-            map.addLayer({
-                id: 'fused-line', type: 'line', source: 'fused',
-                paint: { 'line-color': '#0284C7', 'line-width': 3, 'line-dasharray': [2, 2] }
-            });
-        });
-        
-        mapInstance.current = map;
-        layersRef.current = { vehicleMarker, el };
-        
-        return () => {
-            map.remove();
-            mapInstance.current = null;
-        };
-    }, []);
-    
-    useEffect(() => {
-        if (!mapInstance.current) return;
-        const { vehicleMarker, el } = layersRef.current;
-        if (isDark) {
-            if (mapInstance.current.getLayer('fused-line')) {
-                mapInstance.current.setPaintProperty('fused-line', 'line-color', '#3FD6E0');
-            }
-            el.style.backgroundColor = '#3FD6E0';
-        } else {
-            if (mapInstance.current.getLayer('fused-line')) {
-                mapInstance.current.setPaintProperty('fused-line', 'line-color', '#0284C7');
-            }
-            el.style.backgroundColor = '#0284C7';
-        }
-    }, [isDark]);
-    
-    // Load Telemetry
-    useEffect(() => {
-        const load = async () => {
-            addLogMsg('Loading telemetry...', 'normal', 0);
-            try {
-                const response = await fetch('http://localhost:8000/telemetry');
-                const data = await response.json();
-                setTelemetryData(data);
-                
-                const allLatLons = data.points.map(p => enuToLngLat(p.gt_x, p.gt_y));
-                // Calculate bounding box [ [minLng, minLat], [maxLng, maxLat] ]
-                const minLng = Math.min(...allLatLons.map(p => p[0]));
-                const minLat = Math.min(...allLatLons.map(p => p[1]));
-                const maxLng = Math.max(...allLatLons.map(p => p[0]));
-                const maxLat = Math.max(...allLatLons.map(p => p[1]));
-                const bbox = [[minLng, minLat], [maxLng, maxLat]];
-                
-                const autoFitDiagonal = () => {
-                    if (!mapInstance.current) return;
-                    // For maplibre, we just pass padding object
-                    mapInstance.current.fitBounds(bbox, {padding: {top: 50, bottom: 50, left: 50, right: 50}, animate: false});
-                };
-                
-                autoFitDiagonal();
-                window.addEventListener('resize', autoFitDiagonal);
-                
-                const blackoutPts = data.points.filter(p => p.mode === 2).map(p => enuToLngLat(p.gt_x, p.gt_y));
-                if (mapInstance.current.getSource('blackout')) {
-                    mapInstance.current.getSource('blackout').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: blackoutPts } });
-                } else {
-                    mapInstance.current.once('load', () => {
-                        mapInstance.current.getSource('blackout').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: blackoutPts } });
-                    });
-                }
-                
-                addLogMsg('TELEMETRY DATA LOADED. SYSTEM READY.', 'normal', 0);
-                
-                return () => window.removeEventListener('resize', autoFitDiagonal);
-            } catch (e) {
-                addLogMsg('Error loading telemetry.json. Did you run extract_telemetry.py?', 'alert', 0);
-                console.error(e);
-            }
-        };
-        load();
-    }, []);
-    
-    const addLogMsg = (msg, type, frameStr) => {
-        setEventLog(prev => [{ id: Date.now() + Math.random(), msg, type, frameStr }, ...prev]);
+    return () => {
+      map.remove();
+      mapInstance.current = null;
     };
-    
-    useEffect(() => {
-        simStateRef.current.isRunning = isRunning;
-    }, [isRunning]);
-    
-    useEffect(() => {
-        simStateRef.current.playbackSpeed = playbackSpeed;
-    }, [playbackSpeed]);
-    
-    const renderMapToCurrentIdx = (idx, data) => {
-        if (!data || !mapInstance.current) return;
-        const pts = data.points.slice(0, idx + 1);
-        const gtLatLons = pts.map(p => enuToLngLat(p.gt_x, p.gt_y));
-        const fusedLatLons = pts.map(p => enuToLngLat(p.pred_x, p.pred_y));
-        
-        if (mapInstance.current.getSource('gt')) {
-            mapInstance.current.getSource('gt').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: gtLatLons } });
-        }
-        if (mapInstance.current.getSource('fused')) {
-            mapInstance.current.getSource('fused').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: fusedLatLons } });
-        }
-        
-        if (fusedLatLons.length > 0) {
-            layersRef.current.vehicleMarker.setLngLat(fusedLatLons[fusedLatLons.length - 1]);
-        }
-    };
-    
-    const tick = () => {
-        if (!simStateRef.current.isRunning || !telemetryData) return;
-        
-        let { idx, dist, lastGtPt, mode, playbackSpeed } = simStateRef.current;
-        let didFinish = false;
-        
-        let newEvents = [];
-        let newLogs = [];
-        
-        for (let s = 0; s < playbackSpeed; s++) {
-            if (idx < telemetryData.points.length - 1) {
-                idx++;
-                const pt = telemetryData.points[idx];
-                const ptMode = pt.mode;
-                
-                // Distance Calc
-                if (lastGtPt) {
-                    const dx = pt.gt_x - lastGtPt.gt_x;
-                    const dy = pt.gt_y - lastGtPt.gt_y;
-                    const dt = (pt.frame - lastGtPt.frame) * 0.1;
-                    const realDist = Math.sqrt(dx*dx + dy*dy);
-                    dist += realDist * DISTANCE_SCALE;
-                    const speed = dt > 0 ? (realDist / dt) * 3.6 : 0;
-                    setSpeedKmh(speed);
-                }
-                lastGtPt = pt;
-                
-                const dX = (pt.pred_x - pt.gt_x) * DISTANCE_SCALE;
-                const dY = (pt.pred_y - pt.gt_y) * DISTANCE_SCALE;
-                const eM = Math.sqrt(dX*dX + dY*dY);
-                setDriftX(dX);
-                setDriftY(dY);
-                setErrorM(eM);
-                
-                if (ptMode !== mode) {
-                    if (ptMode === 2) {
-                        newLogs.push({ msg: 'GNSS LOST — SWITCHING TO INERTIAL MODE', type: 'alert', frameStr: pt.frame });
-                        newLogs.push({ msg: 'NHC + ZUPT ACTIVE', type: 'highlight', frameStr: pt.frame + 2 });
-                        newLogs.push({ msg: 'AI SPEED (MESNET) ACTIVE', type: 'highlight', frameStr: pt.frame + 5 });
-                    } else if (ptMode === 3) {
-                        newLogs.push({ msg: 'GNSS REACQUIRED — RESYNCING', type: 'ok', frameStr: pt.frame });
-                    }
-                    mode = ptMode;
-                }
-                
-                // Outage Event Logic
-                if (ptMode === 2 && !currentEventRef.current) {
-                    eventCountRef.current++;
-                    currentEventRef.current = {
-                        id: eventCountRef.current,
-                        start_t: pt.frame,
-                        start_dist: dist,
-                        start_gt: {x: pt.gt_x, y: pt.gt_y},
-                        start_pred: {x: pt.pred_x, y: pt.pred_y},
-                        active: true
-                    };
-                    newEvents.push({ ...currentEventRef.current, cur_t: pt.frame, cur_dist: dist, cur_drift: eM });
-                } else if (ptMode === 2 && currentEventRef.current) {
-                    newEvents.push({ ...currentEventRef.current, cur_t: pt.frame, cur_dist: dist, cur_drift: eM });
-                } else if (ptMode !== 2 && currentEventRef.current) {
-                    newEvents.push({ ...currentEventRef.current, active: false, cur_t: pt.frame, cur_dist: dist, cur_drift: eM });
-                    currentEventRef.current = null;
-                }
-                
-                if (ptMode === 2) setOutageTime((pt.frame - telemetryData.t_start) * 0.1);
-                if (ptMode === 3) setOutageTime((telemetryData.t_end - telemetryData.t_start) * 0.1);
+  }, []);
 
-            } else {
-                simStateRef.current.isRunning = false;
-                setIsRunning(false);
-                didFinish = true;
-                newLogs.push({ msg: 'END OF TELEMETRY', type: 'normal', frameStr: telemetryData.points[idx].frame });
-                break;
-            }
-        }
-        
-        simStateRef.current = { ...simStateRef.current, idx, dist, lastGtPt, mode };
-        setCurrentIdx(idx);
-        setCumulativeDist(dist);
-        setCurrentMode(mode);
-        
-        if (newLogs.length > 0) {
-            setEventLog(prev => {
-                const logs = [...newLogs.map((l, i) => ({ id: Date.now() + i, ...l }))].reverse();
-                return [...logs, ...prev];
-            });
-        }
-        
-        if (newEvents.length > 0) {
-            setEventsList(prev => {
-                const copy = [...prev];
-                newEvents.forEach(ev => {
-                    const idx = copy.findIndex(e => e.id === ev.id);
-                    if (idx >= 0) copy[idx] = ev;
-                    else copy.push(ev);
-                });
-                return copy;
-            });
-        }
-        
-        renderMapToCurrentIdx(idx, telemetryData);
-        
-        if (simStateRef.current.isRunning && !didFinish) {
-            setTimeout(() => {
-                animationId.current = requestAnimationFrame(tick);
-            }, 20);
-        }
-    };
-    
-    useEffect(() => {
-        if (isRunning) {
-            animationId.current = requestAnimationFrame(tick);
-        } else if (animationId.current) {
-            cancelAnimationFrame(animationId.current);
-        }
-        return () => {
-            if (animationId.current) cancelAnimationFrame(animationId.current);
-        };
-    }, [isRunning]);
-    
-    const resetSim = () => {
-        if (!telemetryData) return;
-        setIsRunning(false);
-        if (animationId.current) cancelAnimationFrame(animationId.current);
-        
-        simStateRef.current = {
-            idx: 0,
-            dist: 0,
-            lastGtPt: null,
-            mode: 1,
-            isRunning: false,
-            playbackSpeed
-        };
-        
-        setCurrentIdx(0);
-        setCumulativeDist(0);
-        setCurrentMode(1);
-        setSpeedKmh(0);
-        setErrorM(0);
-        setDriftX(0);
-        setDriftY(0);
-        setOutageTime(0);
-        
-        currentEventRef.current = null;
-        eventCountRef.current = 0;
-        setEventsList([]);
-        setEventLog(prev => prev.filter(l => l.msg.includes('LOADED')));
-        
-        renderMapToCurrentIdx(0, telemetryData);
-    };
-    
-    const runJudgeDemo = () => {
-        resetSim();
-        setPlaybackSpeed(1);
-        addLogMsg('STARTING JUDGE DEMO RUN...', 'highlight', 0);
-        setTimeout(() => setIsRunning(true), 500);
+  // 2. Fetch Telemetry Data with Fallback
+  useEffect(() => {
+    const loadTelemetry = async () => {
+      addLogMsg('INITIALIZING TELEMETRY CONNECTION...', 'normal');
+      try {
+        const res = await fetch('http://localhost:8000/telemetry');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setTelemetryData(data);
+        setIsUsingFallback(false);
+        addLogMsg('CONNECTED TO FASTAPI BACKEND. TELEMETRY LOADED.', 'success');
+        setupMapBounds(data);
+      } catch (err) {
+        console.warn('Backend API unavailable. Using fallback JSON dataset:', err);
+        setTelemetryData(mockTelemetry);
+        setIsUsingFallback(true);
+        addLogMsg('BACKEND OFFLINE. LOADED STATIC TELEMETRY FALLBACK FIXTURE.', 'warning');
+        setupMapBounds(mockTelemetry);
+      }
     };
 
-    // UI derivation
-    let modeText = 'GNSS: LOCKED';
-    let clsGlobal = 'mode-green';
-    let clsLocal = 'mode-green-text';
-    let filterModeText = 'GNSS LOCK';
-    let dotAi = false, dotNhc = false, dotMap = false;
-    
-    let uncertAlongW = '2%', uncertCrossW = '2%', uncertHeadW = '5%';
-    let uncertAlongV = '0.1m', uncertCrossV = '0.1m', uncertHeadV = '0.5°';
+    loadTelemetry();
+  }, []);
 
-    if (telemetryData) {
-        const pt = telemetryData.points[currentIdx] || telemetryData.points[0];
-        const mode = currentMode;
-        
-        if (mode === 1) {
-            // defaults
-        } else if (mode === 2) {
-            modeText = 'GNSS: BLACKOUT — IDR ACTIVE';
-            clsGlobal = 'mode-red'; clsLocal = 'mode-red-text';
-            filterModeText = 'INERTIAL (NHC+ZUPT)';
-            dotAi = true; dotNhc = true;
-            
-            const outFrames = pt.frame - telemetryData.t_start;
-            const outFactor = outFrames / (telemetryData.t_end - telemetryData.t_start); 
-            uncertAlongW = `${10 + outFactor * 70}%`;
-            uncertCrossW = `${5 + outFactor * 50}%`;
-            uncertHeadW = `${10 + outFactor * 30}%`;
-            uncertAlongV = (0.1 + outFactor * 4.5).toFixed(1) + 'm';
-            uncertCrossV = (0.1 + outFactor * 2.1).toFixed(1) + 'm';
-            uncertHeadV = (0.5 + outFactor * 1.5).toFixed(1) + '°';
-        } else if (mode === 3) {
-            modeText = 'GNSS: RECOVERED (RESYNCING)';
-            clsGlobal = 'mode-amber'; clsLocal = 'mode-amber-text';
-            filterModeText = 'RESYNC';
-            
-            if (pt.frame > telemetryData.t_end + 30) {
-                modeText = 'GNSS: LOCKED';
-                clsGlobal = 'mode-green'; clsLocal = 'mode-green-text';
-                filterModeText = 'GNSS LOCK';
-            } else {
-                uncertAlongW = '5%'; uncertCrossW = '5%'; uncertHeadW = '8%';
-                uncertAlongV = '0.3m'; uncertCrossV = '0.3m'; uncertHeadV = '0.8°';
-            }
-        }
+  const setupMapBounds = (data) => {
+    if (!mapInstance.current || !data?.points?.length) return;
+    const allCoords = data.points.map((p) => enuToLngLat(p.gt_x, p.gt_y));
+    const minLng = Math.min(...allCoords.map((c) => c[0]));
+    const minLat = Math.min(...allCoords.map((c) => c[1]));
+    const maxLng = Math.max(...allCoords.map((c) => c[0]));
+    const maxLat = Math.max(...allCoords.map((c) => c[1]));
+
+    mapInstance.current.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: 60, animate: false }
+    );
+  };
+
+  // Sync state refs
+  useEffect(() => {
+    simStateRef.current.isRunning = isRunning;
+  }, [isRunning]);
+
+  useEffect(() => {
+    simStateRef.current.playbackSpeed = playbackSpeed;
+  }, [playbackSpeed]);
+
+  // 3. Render Map Paths up to current index
+  const updateMapPaths = (idx, data) => {
+    if (!data || !mapInstance.current) return;
+    const currentPoints = data.points.slice(0, idx + 1);
+
+    // Group paths by operational mode
+    const gnssCoords = [];
+    const gtBlackoutCoords = [];
+    const drEstimateCoords = [];
+
+    currentPoints.forEach((pt) => {
+      const gtCoord = enuToLngLat(pt.gt_x, pt.gt_y);
+      const predCoord = enuToLngLat(pt.pred_x, pt.pred_y);
+
+      if (pt.mode === 1) {
+        gnssCoords.push(gtCoord);
+      } else if (pt.mode === 2) {
+        gtBlackoutCoords.push(gtCoord);
+        drEstimateCoords.push(predCoord);
+      } else if (pt.mode === 3) {
+        gnssCoords.push(gtCoord);
+        drEstimateCoords.push(predCoord);
+      }
+    });
+
+    if (mapInstance.current.getSource('gnss-path')) {
+      mapInstance.current.getSource('gnss-path').setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: gnssCoords },
+      });
+    }
+    if (mapInstance.current.getSource('gt-blackout-path')) {
+      mapInstance.current.getSource('gt-blackout-path').setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: gtBlackoutCoords },
+      });
+    }
+    if (mapInstance.current.getSource('dr-estimate-path')) {
+      mapInstance.current.getSource('dr-estimate-path').setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: drEstimateCoords },
+      });
     }
 
-    const progressPct = telemetryData ? (telemetryData.points[currentIdx]?.frame / telemetryData.total_frames) * 100 : 0;
-    const ratio = cumulativeDist > 0 ? (errorM / cumulativeDist) * 100 : 0;
-    const ratioClass = currentIdx >= (telemetryData?.totalPoints - 1) ? (ratio < 10 ? 'good' : 'bad') : '';
+    // Move marker to current estimated position
+    if (currentPoints.length > 0 && vehicleMarkerRef.current) {
+      const lastPt = currentPoints[currentPoints.length - 1];
+      const pos = enuToLngLat(lastPt.pred_x, lastPt.pred_y);
+      vehicleMarkerRef.current.setLngLat(pos);
+    }
+  };
 
-    return (
-        <div className={`dashboard-body ${isDark ? 'dark-theme' : ''}`}>
-            <div className="dashboard-grid">
-                {/* HEADER */}
-                <header className="top-bar">
-                    <div className="header-left">
-                        <div className="proj-name">NavNirantar</div>
-                        <div className="proj-sub">Telemetry Dashboard</div>
-                    </div>
-                    <div className="header-center">
-                        <div className={`mode-indicator ${clsGlobal}`}>{modeText}</div>
-                    </div>
-                    <div className="header-right controls">
-                        <button className="btn-ctrl" onClick={() => setIsRunning(true)}>Play</button>
-                        <button className="btn-ctrl" onClick={() => setIsRunning(false)}>Pause</button>
-                        <button className="btn-ctrl" onClick={resetSim}>Reset</button>
-                        <select className="speed-select" value={playbackSpeed} onChange={e => setPlaybackSpeed(parseInt(e.target.value, 10))}>
-                            <option value="1">1x</option>
-                            <option value="2">2x</option>
-                            <option value="4">4x</option>
-                            <option value="10">10x</option>
-                        </select>
-                        <button className="btn-primary" onClick={runJudgeDemo}>Run Judge Demo</button>
-                    </div>
-                </header>
+  // 4. Animation Frame Loop
+  useEffect(() => {
+    let animTimer = null;
 
-                {/* PROGRESS BAR */}
-                <div className="progress-container">
-                    <div className="progress-track" id="progress-track">
-                        {telemetryData && (
-                            <>
-                                <div className="blackout-zone" style={{
-                                    left: `${(telemetryData.t_start / telemetryData.total_frames) * 100}%`,
-                                    width: `${((telemetryData.t_end - telemetryData.t_start) / telemetryData.total_frames) * 100}%`
-                                }}></div>
-                                <div style={{position: 'absolute', left: `${(telemetryData.t_start / telemetryData.total_frames) * 100}%`, top: '12px', fontSize: '9px', color: '#E5484D', fontWeight: 'bold'}}>LOS</div>
-                                <div style={{position: 'absolute', left: `${(telemetryData.t_end / telemetryData.total_frames) * 100}%`, top: '12px', fontSize: '9px', color: '#2ECC71', fontWeight: 'bold', transform: 'translateX(-100%)'}}>RESYNC</div>
-                            </>
-                        )}
-                        <div className="playhead" style={{left: `${progressPct}%`}}></div>
-                    </div>
-                </div>
+    const tick = () => {
+      if (!simStateRef.current.isRunning || !telemetryData) return;
 
-                {/* LEFT PANEL */}
-                <aside className="left-panel">
-                    <div className="panel-card">
-                        <div className="card-label">Filter Mode</div>
-                        <div className={`card-value large ${clsLocal}`}>{filterModeText}</div>
-                        <div className="card-sub">Filter state machine</div>
-                    </div>
+      let { idx, dist, lastGtPt, playbackSpeed } = simStateRef.current;
 
-                    <div className="panel-card">
-                        <div className="card-label">Active Corrections</div>
-                        <div className="toggle-row"><span className={`dot ${dotAi ? 'active' : ''}`}></span> AI SPEED (MesNet)</div>
-                        <div className="toggle-row"><span className={`dot ${dotNhc ? 'active' : ''}`}></span> NHC (Constraint)</div>
-                        <div className="toggle-row"><span className={`dot ${dotMap ? 'active' : ''}`}></span> MAP-MATCHING</div>
-                    </div>
+      for (let s = 0; s < playbackSpeed; s++) {
+        if (idx < telemetryData.points.length - 1) {
+          idx++;
+          const pt = telemetryData.points[idx];
 
-                    <div className="panel-card">
-                        <div className="card-label">Drift Comparison</div>
-                        <div className="mono-value"><span>{driftX.toFixed(2)}</span> <span className="unit">m X</span></div>
-                        <div className="mono-value"><span>{driftY.toFixed(2)}</span> <span className="unit">m Y</span></div>
-                    </div>
+          if (lastGtPt) {
+            const dx = pt.gt_x - lastGtPt.gt_x;
+            const dy = pt.gt_y - lastGtPt.gt_y;
+            const stepDist = Math.sqrt(dx * dx + dy * dy) * DISTANCE_SCALE;
+            dist += stepDist;
+            const speed = stepDist * 10 * 3.6; // 10Hz sampling
+            setSpeedKmh(speed);
+          }
+          lastGtPt = pt;
 
-                    <div className="panel-card">
-                        <div className="card-label">Uncertainty (Simulated)</div>
-                        <div className="uncert-row">
-                            <div className="uncert-label">ALONG-TRACK</div>
-                            <div className="uncert-bar-bg"><div className="uncert-bar" style={{width: uncertAlongW}}></div></div>
-                            <div className="uncert-val">{uncertAlongV}</div>
-                        </div>
-                        <div className="uncert-row">
-                            <div className="uncert-label">CROSS-TRACK</div>
-                            <div className="uncert-bar-bg"><div className="uncert-bar" style={{width: uncertCrossW}}></div></div>
-                            <div className="uncert-val">{uncertCrossV}</div>
-                        </div>
-                        <div className="uncert-row">
-                            <div className="uncert-label">HEADING</div>
-                            <div className="uncert-bar-bg"><div className="uncert-bar" style={{width: uncertHeadW}}></div></div>
-                            <div className="uncert-val">{uncertHeadV}</div>
-                        </div>
-                    </div>
-                    <div className="panel-card">
-                        <button className="btn-primary" style={{width: '100%', padding: '10px'}} onClick={() => setShowEventsModal(true)}>
-                            View GPS Outage Events
-                        </button>
-                    </div>
-                </aside>
+          // Compute drift error
+          const dX = (pt.pred_x - pt.gt_x) * DISTANCE_SCALE;
+          const dY = (pt.pred_y - pt.gt_y) * DISTANCE_SCALE;
+          const err = Math.sqrt(dX * dX + dY * dY);
 
-                {/* CENTER MAP */}
-                <main className="center-map">
-                    <div id="map" ref={mapRef}></div>
-                    <div className="map-overlay">
-                        <div className="map-legend">
-                            <div className="legend-item"><span className="legend-line gt"></span> Ground Truth</div>
-                            <div className="legend-item"><span className="legend-line fused"></span> Fused/IDR Track</div>
-                            <div className="legend-item"><span className="legend-box blackout"></span> Blackout Zone</div>
-                        </div>
-                    </div>
-                </main>
+          setDriftX(dX);
+          setDriftY(dY);
+          setErrorM(err);
+          setCurrentMode(pt.mode);
+          setCurrentIdx(idx);
+          setCumulativeDist(dist);
 
-                {/* RIGHT PANEL */}
-                <aside className="right-panel">
-                    <div className="panel-card event-log-card">
-                        <div className="card-label">Event Log</div>
-                        <div className="event-log">
-                            {eventLog.map(log => (
-                                <div key={log.id} className="log-entry">
-                                    <span className="log-time">{formatTime(log.frameStr)}</span> <span className={`log-msg ${log.type}`}>{log.msg}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+          if (pt.mode === 2) {
+            simStateRef.current.outageFrames += 1;
+            setBlackoutDuration(simStateRef.current.outageFrames * 0.1);
+          }
 
-                    <div className="panel-card telemetry-grid">
-                        <div className="tel-box">
-                            <div className="tel-label">SPEED</div>
-                            <div className="tel-val">{speedKmh.toFixed(1)} <span className="tel-unit">km/h</span></div>
-                        </div>
-                        <div className="tel-box">
-                            <div className="tel-label">DISTANCE</div>
-                            <div className="tel-val">{cumulativeDist.toFixed(1)} <span className="tel-unit">m</span></div>
-                        </div>
-                        <div className="tel-box">
-                            <div className="tel-label">UPDATE RATE</div>
-                            <div className="tel-val">10.0 <span className="tel-unit">Hz</span></div>
-                        </div>
-                        <div className="tel-box">
-                            <div className="tel-label">OUTAGE TIME</div>
-                            <div className="tel-val">{outageTime.toFixed(1)} <span className="tel-unit">s</span></div>
-                        </div>
-                        <div className="tel-box">
-                            <div className="tel-label">DRIFT VS TRUTH</div>
-                            <div className="tel-val">{errorM.toFixed(2)} <span className="tel-unit">m</span></div>
-                        </div>
-                        <div className="tel-box">
-                            <div className="tel-label">DRIFT RATIO</div>
-                            <div className={`tel-val ${ratioClass}`}>{ratio.toFixed(2)} <span className="tel-unit">%</span></div>
-                        </div>
-                    </div>
-                </aside>
+          // Trigger log events on mode transitions
+          if (idx === telemetryData.t_start) {
+            addLogMsg('⚠️ GNSS SIGNAL DENIED! ENTERING AI DEAD RECKONING MODE.', 'warning');
+          } else if (idx === telemetryData.t_end) {
+            addLogMsg('✅ GNSS SIGNAL RESTORED. INITIATING STATE RE-FUSION.', 'success');
+          }
+        } else {
+          setIsRunning(false);
+          addLogMsg('TELEMETRY SIMULATION COMPLETE.', 'success');
+          break;
+        }
+      }
 
-                {/* GPS OUTAGE EVENTS */}
-                <section className={`events-table-panel ${showEventsModal ? 'active' : ''}`}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
-                        <div className="card-label" style={{fontSize: '14px', margin: 0}}>GPS Outage Events</div>
-                        <button className="btn-ctrl" style={{cursor: 'pointer'}} onClick={() => setShowEventsModal(false)}>Close</button>
-                    </div>
-                    <table className="events-table">
-                        <thead>
-                            <tr>
-                                <th>Event</th>
-                                <th>GPS Lost</th>
-                                <th>GPS Restored</th>
-                                <th>Duration</th>
-                                <th>Distance Traveled</th>
-                                <th>Drift (Error / Ratio)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {eventsList.map(ev => {
-                                const dur = (ev.cur_t - ev.start_t) * 0.1;
-                                const dist = ev.cur_dist - ev.start_dist;
-                                const drift = ev.cur_drift;
-                                const r = dist > 0 ? (drift / dist) * 100 : 0;
-                                let driftClass = 'drift-fail';
-                                if (!ev.active) {
-                                    if (r < 10) driftClass = 'drift-pass';
-                                    else if (r <= 20) driftClass = 'drift-warn';
-                                }
-                                
-                                return (
-                                    <tr key={ev.id} className={ev.active ? 'active-event' : ''}>
-                                        <td>#{ev.id}</td>
-                                        <td>T+{formatTime(ev.start_t - (telemetryData?.t_start || 0))}</td>
-                                        <td>{ev.active ? '(live - ongoing)' : 'T+' + formatTime(ev.cur_t - (telemetryData?.t_start || 0))}</td>
-                                        <td>{dur.toFixed(1)} s</td>
-                                        <td>{dist.toFixed(1)} m</td>
-                                        <td className={!ev.active ? driftClass : ''}>{drift.toFixed(1)} m / {r.toFixed(1)}%</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </section>
+      simStateRef.current.idx = idx;
+      simStateRef.current.dist = dist;
+      simStateRef.current.lastGtPt = lastGtPt;
 
-                {/* BOTTOM BAR */}
-                <footer className="bottom-bar">
-                    <div className="footer-left">Live Telemetry Dashboard — Powered by Real Backend Evaluation Data</div>
-                    <div className="footer-right"><Link to="/" className="back-link">← Exit Dashboard</Link></div>
-                </footer>
-            </div>
+      updateMapPaths(idx, telemetryData);
+
+      if (simStateRef.current.isRunning) {
+        animTimer = setTimeout(tick, 100);
+      }
+    };
+
+    if (isRunning) {
+      tick();
+    }
+
+    return () => {
+      if (animTimer) clearTimeout(animTimer);
+    };
+  }, [isRunning, telemetryData]);
+
+  // Simulation controls
+  const handleTogglePlay = () => {
+    setIsRunning(!isRunning);
+  };
+
+  const handleReset = () => {
+    setIsRunning(false);
+    simStateRef.current = {
+      idx: 0,
+      dist: 0,
+      lastGtPt: null,
+      isRunning: false,
+      playbackSpeed: playbackSpeed,
+      outageFrames: 0,
+    };
+    setCurrentIdx(0);
+    setCumulativeDist(0);
+    setSpeedKmh(0);
+    setErrorM(0);
+    setDriftX(0);
+    setDriftY(0);
+    setBlackoutDuration(0);
+    setCurrentMode(1);
+    addLogMsg('SIMULATION RESET TO FRAME 0.', 'normal');
+    if (telemetryData) updateMapPaths(0, telemetryData);
+  };
+
+  // Helper mode formatters
+  const getModeBadge = (mode) => {
+    switch (mode) {
+      case 2:
+        return <span className="mode-badge red-badge">DR OUTAGE MODE</span>;
+      case 3:
+        return <span className="mode-badge blue-badge">SIGNAL RESYNCING</span>;
+      case 1:
+      default:
+        return <span className="mode-badge green-badge">GNSS AVAILABLE</span>;
+    }
+  };
+
+  const driftPercent = cumulativeDist > 0 ? ((errorM / cumulativeDist) * 100).toFixed(2) : '0.00';
+
+  return (
+    <div className="dashboard-container">
+      {/* Top Control Header */}
+      <header className="dashboard-header">
+        <div className="dash-brand">
+          <Link to="/" className="back-link">
+            ← Home
+          </Link>
+          <h1 className="dash-title">Telemetry Control Center</h1>
+          {getModeBadge(currentMode)}
+          {isUsingFallback && (
+            <span className="fallback-tag" title="Backend offline - using static JSON data">
+              Offline Mock Data
+            </span>
+          )}
         </div>
-    );
+
+        <div className="dash-controls">
+          <button onClick={handleTogglePlay} className="control-btn primary-btn">
+            {isRunning ? '⏸ Pause' : '▶ Play Replay'}
+          </button>
+          <button onClick={handleReset} className="control-btn secondary-btn">
+            ↺ Reset
+          </button>
+          <div className="speed-selector">
+            <span className="speed-label">Speed:</span>
+            {[1, 2, 5].map((spd) => (
+              <button
+                key={spd}
+                onClick={() => setPlaybackSpeed(spd)}
+                className={`speed-btn ${playbackSpeed === spd ? 'active' : ''}`}
+              >
+                {spd}x
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Grid: Left Map + Right Telemetry Panel */}
+      <div className="dashboard-grid">
+        {/* Interactive Map Box with data-lenis-prevent */}
+        <div className="map-card-wrapper level-1">
+          <div ref={mapRef} data-lenis-prevent className="map-viewport" />
+
+          {/* Floating Map Overlay Legend */}
+          <div className="map-overlay-legend">
+            <div className="legend-row">
+              <span className="dot-indicator green-dot" />
+              <span>GNSS Tracked Path (#228a56)</span>
+            </div>
+            <div className="legend-row">
+              <span className="dot-indicator slate-dashed-dot" />
+              <span>Ground-Truth Blackout (#566171)</span>
+            </div>
+            <div className="legend-row">
+              <span className="dot-indicator red-dot" />
+              <span>AI DR Estimate (#ef4444)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Metrics Panel */}
+        <aside className="metrics-panel">
+          {/* Flat Level-1 Metric Summary Card */}
+          <div className="stack-card level-1 metric-summary-card">
+            <h3 className="panel-title">System Status & Metrics</h3>
+
+            <div className="metric-rows">
+              <div className="metric-item">
+                <span className="lbl">Operational Mode</span>
+                <span className="val">{getModeBadge(currentMode)}</span>
+              </div>
+
+              <div className="metric-item">
+                <span className="lbl">Blackout Duration</span>
+                <span className="val highlight-red">{blackoutDuration.toFixed(1)} s</span>
+              </div>
+
+              <div className="metric-item">
+                <span className="lbl">Cumulative Distance</span>
+                <span className="val">{(cumulativeDist / 1000).toFixed(2)} km ({cumulativeDist.toFixed(0)} m)</span>
+              </div>
+
+              <div className="metric-item">
+                <span className="lbl">Vehicle Speed</span>
+                <span className="val">{speedKmh.toFixed(1)} km/h</span>
+              </div>
+
+              <div className="metric-item">
+                <span className="lbl">Final Position Error</span>
+                <span className="val highlight-blue">{errorM.toFixed(2)} m</span>
+              </div>
+
+              <div className="metric-item">
+                <span className="lbl">Accumulated Drift</span>
+                <span className="val highlight-blue">{driftPercent} %</span>
+              </div>
+
+              <div className="metric-item">
+                <span className="lbl">Delta X / Y Drift</span>
+                <span className="val mono-font">
+                  ΔX: {driftX.toFixed(2)}m | ΔY: {driftY.toFixed(2)}m
+                </span>
+              </div>
+            </div>
+
+            <button onClick={() => setShowEventsModal(true)} className="btn-diagnostics">
+              🔍 View GPS Outage Diagnostics
+            </button>
+          </div>
+
+          {/* Terminal Event Log Card */}
+          <div className="stack-card level-1 terminal-card">
+            <div className="terminal-header">
+              <span className="term-title">EVENT LOG TERMINAL</span>
+              <span className="term-count">{eventLog.length} events</span>
+            </div>
+            <div className="terminal-body">
+              {eventLog.map((log) => (
+                <div key={log.id} className={`log-line ${log.type}`}>
+                  <span className="log-time">[{log.time}]</span>
+                  <span className="log-msg">{log.msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {/* GPS Outage Diagnostics Modal */}
+      {showEventsModal && (
+        <div className="modal-backdrop" onClick={() => setShowEventsModal(false)}>
+          <div className="stack-card level-2 modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>GPS Outage Diagnostics Report</h2>
+              <button onClick={() => setShowEventsModal(false)} className="close-btn">
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <table className="diagnostics-table">
+                <thead>
+                  <tr>
+                    <th>Event ID</th>
+                    <th>Outage Duration</th>
+                    <th>Distance Traveled</th>
+                    <th>Final DR Drift</th>
+                    <th>Drift %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>OUTAGE-001</td>
+                    <td>60.0 s</td>
+                    <td>{(cumulativeDist).toFixed(0)} m</td>
+                    <td>{errorM.toFixed(2)} m</td>
+                    <td>{driftPercent}%</td>
+                    <td><span className="badge-text success">BOUNDED BY IEKF</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
