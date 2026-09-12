@@ -5,16 +5,21 @@ import mockTelemetry from './data/mockTelemetry.json';
 import './App.css';
 
 // Spatial conversion constants
-const ANCHOR_LAT = 37.7749;
-const ANCHOR_LON = -122.4194;
+const ANCHOR_LAT = 37.3382; // San Jose (landlocked) to prevent water overlap
+const ANCHOR_LON = -121.8863;
 const METERS_PER_DEG_LAT = 111320.0;
 const METERS_PER_DEG_LON = 111320.0 * Math.cos((ANCHOR_LAT * Math.PI) / 180.0);
 const DISTANCE_SCALE = 0.25;
 
+let offsetX = 0;
+let offsetY = 0;
+
 // Convert local ENU (East-North-Up in meters) to GPS Longitude/Latitude
 function enuToLngLat(x, y) {
-  const lat = ANCHOR_LAT + y / METERS_PER_DEG_LAT;
-  const lng = ANCHOR_LON + x / METERS_PER_DEG_LON;
+  const dx = x - offsetX;
+  const dy = y - offsetY;
+  const lat = ANCHOR_LAT + dy / METERS_PER_DEG_LAT;
+  const lng = ANCHOR_LON + dx / METERS_PER_DEG_LON;
   return [lng, lat];
 }
 
@@ -67,8 +72,20 @@ export default function App() {
 
     const map = new MapLibreMap({
       container: mapRef.current,
-      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-      center: [-122.4194, 37.7749],
+      style: {
+        version: 8,
+        sources: {},
+        layers: [
+          {
+            id: 'background',
+            type: 'background',
+            paint: {
+              'background-color': '#1a1a24' // Dark dashboard background
+            }
+          }
+        ]
+      },
+      center: [ANCHOR_LON, ANCHOR_LAT],
       zoom: 15,
       attributionControl: false,
     });
@@ -83,7 +100,7 @@ export default function App() {
     el.style.border = '2px solid #ffffff';
     el.style.boxShadow = '0 0 10px rgba(239, 68, 68, 0.8)';
 
-    const vehicleMarker = new Marker({ element: el }).setLngLat([-122.4194, 37.7749]).addTo(map);
+    const vehicleMarker = new Marker({ element: el }).setLngLat([ANCHOR_LON, ANCHOR_LAT]).addTo(map);
     vehicleMarkerRef.current = vehicleMarker;
 
     map.on('load', () => {
@@ -173,6 +190,12 @@ export default function App() {
 
   const setupMapBounds = (data) => {
     if (!mapInstance.current || !data?.points?.length) return;
+    
+    // Sync the map offset to the first point of the trajectory
+    // so it renders accurately over land instead of arbitrary coordinates.
+    offsetX = data.points[0].gt_x;
+    offsetY = data.points[0].gt_y;
+
     const allCoords = data.points.map((p) => enuToLngLat(p.gt_x, p.gt_y));
     const minLng = Math.min(...allCoords.map((c) => c[0]));
     const minLat = Math.min(...allCoords.map((c) => c[1]));

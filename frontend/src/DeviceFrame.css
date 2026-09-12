@@ -57,6 +57,7 @@
 
 .device-container.phone-frame {
   width: 400px;
+  max-width: 90vw;
   height: 850px;
   max-height: 90vh;
   aspect-ratio: 9 / 19.5;
@@ -66,6 +67,7 @@
   position: relative;
   margin: 20px auto;
   overflow: hidden;
+  transform: translateZ(0);
 }
 
 .device-screen {
