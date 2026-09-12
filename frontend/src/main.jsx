@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import Home from './Home.jsx'
+import Intro from './Intro.jsx'
 import DeviceFrame from './DeviceFrame.jsx'
 
 function RootApp() {
@@ -11,9 +12,10 @@ function RootApp() {
     <BrowserRouter>
       <DeviceFrame>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Intro />} />
+          <Route path="/home" element={<Home />} />
           <Route path="/dashboard" element={<App />} />
-          <Route path="*" element={<Home />} />
+          <Route path="*" element={<Intro />} />
         </Routes>
       </DeviceFrame>
     </BrowserRouter>

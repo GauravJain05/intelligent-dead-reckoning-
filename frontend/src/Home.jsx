@@ -42,9 +42,11 @@ export default function Home() {
       {/* Top Navbar */}
       <header className="navbar">
         <div className="brand-badge">
-          <span className="brand-dot"></span>
-          <span className="brand-name">NavNirantar</span>
-          <span className="brand-sub">| IDR</span>
+          <Link to="/" className="brand-link" style={{ textDecoration: 'none', color: 'inherit', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="brand-dot"></span>
+            <span className="brand-name">NavNirantar</span>
+            <span className="brand-sub">| IDR</span>
+          </Link>
         </div>
         <div className="nav-links">
           <a href="#problem" className="nav-link">Overview</a>
@@ -84,7 +86,7 @@ export default function Home() {
             </a>
           </div>
 
-          {/* Hero Media Block with Inset Vignette Shadow */}
+          {/* Hero Media Block */}
           <div 
             className="hero-media-block"
             style={{ transform: `translateY(${scrollY * -0.05}px)` }}
