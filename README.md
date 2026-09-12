@@ -1,6 +1,7 @@
 # Intelligent Dead Reckoning (IDR) for GNSS-Denied Navigation
 *AI/ML-Driven State Estimation Prototype for Smart Mobility — SIH Stage 1 Proof of Concept (PS ID: 26168)*
 
+<sub>Live at: <a href="https://intelligent-dead-reckoning-1jkyqj0kl.vercel.app">NavNirantar</a></sub>
 ---
 
 ## 1. Project Overview
