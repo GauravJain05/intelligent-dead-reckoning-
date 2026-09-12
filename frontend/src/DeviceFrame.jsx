@@ -6,11 +6,14 @@ export default function DeviceFrame({ children }) {
   const [isPhoneView, setIsPhoneView] = useState(false);
   const location = useLocation();
 
+  const isHomePage = location.pathname === '/' || location.pathname === '/home';
+
   return (
     <div className={`device-layout ${isPhoneView ? 'phone-mode' : 'web-mode'}`}>
       
       {/* View Toggle Button */}
-      <div className="view-toggle">
+      {isHomePage && (
+        <div className="view-toggle">
         <button 
           onClick={() => setIsPhoneView(!isPhoneView)} 
           className="pill-toggle-btn"
@@ -20,6 +23,7 @@ export default function DeviceFrame({ children }) {
           <span>{isPhoneView ? "Switch to Full Website View" : "Showcase in Phone View"}</span>
         </button>
       </div>
+      )}
 
       <div className={`device-container ${isPhoneView ? 'phone-frame' : ''}`}>
         <div 

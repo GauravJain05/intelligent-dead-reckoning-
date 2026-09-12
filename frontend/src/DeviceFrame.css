@@ -15,8 +15,8 @@
 
 .view-toggle {
   position: fixed;
-  top: 16px;
-  right: 16px;
+  bottom: 24px;
+  right: 24px;
   z-index: 10000;
 }
 
@@ -35,6 +35,7 @@
   letter-spacing: -0.04em;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .pill-toggle-btn:hover {
@@ -91,84 +92,3 @@
   scrollbar-width: none;
 }
 
-/* Container Queries & Scoped Phone-Frame Overrides for 400px Simulated Frame */
-@container (max-width: 600px) {
-  .main-content {
-    padding: 0 16px !important;
-  }
-  .navbar {
-    padding: 12px 16px !important;
-  }
-  .hero-headline {
-    font-size: 32px !important;
-    line-height: 1.05 !important;
-  }
-  .problem-solution-grid, .features-grid {
-    grid-template-columns: 1fr !important;
-    gap: 16px !important;
-  }
-  .feature-card-wide {
-    grid-column: span 1 !important;
-  }
-  .stack-card {
-    padding: 20px !important;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-  }
-  .preview-metrics-bar {
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
-  }
-  .cta-banner {
-    padding: 32px 20px !important;
-  }
-  .cta-title {
-    font-size: 24px !important;
-  }
-  .hero-actions {
-    flex-direction: column !important;
-    align-items: stretch !important;
-  }
-  .btn-cta-primary, .btn-cta-outlined {
-    width: 100% !important;
-  }
-}
-
-/* Explicit Class-based Fallback for Scoped Phone Frame */
-.device-container.phone-frame .main-content {
-  padding: 0 16px;
-}
-.device-container.phone-frame .navbar {
-  padding: 12px 16px;
-}
-.device-container.phone-frame .hero-headline {
-  font-size: 30px;
-  line-height: 1.05;
-}
-.device-container.phone-frame .problem-solution-grid,
-.device-container.phone-frame .features-grid {
-  grid-template-columns: 1fr;
-  gap: 16px;
-}
-.device-container.phone-frame .feature-card-wide {
-  grid-column: span 1;
-}
-.device-container.phone-frame .stack-card {
-  padding: 20px;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-}
-.device-container.phone-frame .preview-metrics-bar {
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-.device-container.phone-frame .cta-banner {
-  padding: 32px 20px;
-}
-.device-container.phone-frame .hero-actions {
-  flex-direction: column;
-  gap: 12px;
-}
-.device-container.phone-frame .hero-btn {
-  width: 100%;
-}

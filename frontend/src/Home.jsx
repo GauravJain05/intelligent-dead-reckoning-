@@ -33,12 +33,6 @@ export default function Home() {
 
   return (
     <div className="home-wrapper">
-      {/* Background Decorative Layer for Parallax */}
-      <div 
-        className="parallax-bg-layer"
-        style={{ transform: `translateY(${scrollY * 0.15}px)` }}
-      />
-
       {/* Top Navbar */}
       <header className="navbar">
         <div className="brand-badge">

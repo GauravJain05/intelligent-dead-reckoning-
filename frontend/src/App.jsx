@@ -40,6 +40,7 @@ export default function App() {
   const [blackoutDuration, setBlackoutDuration] = useState(0);
   const [eventLog, setEventLog] = useState([]);
   const [showEventsModal, setShowEventsModal] = useState(false);
+  const [outageMetrics, setOutageMetrics] = useState(null);
 
   // Sim animation state reference for tick loop
   const simStateRef = useRef({
@@ -49,6 +50,8 @@ export default function App() {
     isRunning: false,
     playbackSpeed: 1,
     outageFrames: 0,
+    outageStartDist: 0,
+    outageCompleted: false,
   });
 
   const addLogMsg = (msg, type = 'normal') => {
@@ -85,17 +88,19 @@ export default function App() {
 
     map.on('load', () => {
       // GeoJSON Sources
+      const emptyGeoJSON = { type: 'FeatureCollection', features: [] };
+      
       map.addSource('gnss-path', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+        data: emptyGeoJSON,
       });
       map.addSource('gt-blackout-path', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+        data: emptyGeoJSON,
       });
       map.addSource('dr-estimate-path', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+        data: emptyGeoJSON,
       });
 
       // Map Layers with STRICT requested colors:
@@ -202,38 +207,52 @@ export default function App() {
     const gtBlackoutCoords = [];
     const drEstimateCoords = [];
 
-    currentPoints.forEach((pt) => {
+    currentPoints.forEach((pt, i) => {
       const gtCoord = enuToLngLat(pt.gt_x, pt.gt_y);
       const predCoord = enuToLngLat(pt.pred_x, pt.pred_y);
 
+      // To prevent gaps when switching modes, we can optionally include the previous point
+      const prevPt = i > 0 ? currentPoints[i - 1] : null;
+      const prevGtCoord = prevPt ? enuToLngLat(prevPt.gt_x, prevPt.gt_y) : null;
+      const prevPredCoord = prevPt ? enuToLngLat(prevPt.pred_x, prevPt.pred_y) : null;
+
       if (pt.mode === 1) {
+        if (prevPt && prevPt.mode !== 1) gnssCoords.push(prevGtCoord);
         gnssCoords.push(gtCoord);
       } else if (pt.mode === 2) {
+        if (prevPt && prevPt.mode !== 2) {
+          gtBlackoutCoords.push(prevGtCoord);
+          drEstimateCoords.push(prevGtCoord); // DR estimate branches off from last GT point
+        }
         gtBlackoutCoords.push(gtCoord);
         drEstimateCoords.push(predCoord);
       } else if (pt.mode === 3) {
+        if (prevPt && prevPt.mode !== 3) {
+          gnssCoords.push(prevGtCoord);
+          drEstimateCoords.push(prevPredCoord);
+        }
         gnssCoords.push(gtCoord);
         drEstimateCoords.push(predCoord);
       }
     });
 
-    if (mapInstance.current.getSource('gnss-path')) {
-      mapInstance.current.getSource('gnss-path').setData({
+    const getLineStringData = (coords) => {
+      if (coords.length < 2) return { type: 'FeatureCollection', features: [] };
+      return {
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: gnssCoords },
-      });
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: {},
+      };
+    };
+
+    if (mapInstance.current.getSource('gnss-path')) {
+      mapInstance.current.getSource('gnss-path').setData(getLineStringData(gnssCoords));
     }
     if (mapInstance.current.getSource('gt-blackout-path')) {
-      mapInstance.current.getSource('gt-blackout-path').setData({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: gtBlackoutCoords },
-      });
+      mapInstance.current.getSource('gt-blackout-path').setData(getLineStringData(gtBlackoutCoords));
     }
     if (mapInstance.current.getSource('dr-estimate-path')) {
-      mapInstance.current.getSource('dr-estimate-path').setData({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: drEstimateCoords },
-      });
+      mapInstance.current.getSource('dr-estimate-path').setData(getLineStringData(drEstimateCoords));
     }
 
     // Move marker to current estimated position
@@ -281,8 +300,25 @@ export default function App() {
           setCumulativeDist(dist);
 
           if (pt.mode === 2) {
+            if (simStateRef.current.outageFrames === 0) {
+              simStateRef.current.outageStartDist = dist;
+            }
             simStateRef.current.outageFrames += 1;
-            setBlackoutDuration(simStateRef.current.outageFrames * 0.1);
+            const duration = simStateRef.current.outageFrames * 0.1;
+            setBlackoutDuration(duration);
+            
+            const outageDist = dist - simStateRef.current.outageStartDist;
+            const pct = outageDist > 0 ? ((err / outageDist) * 100).toFixed(2) : '0.00';
+            setOutageMetrics({
+              duration: duration.toFixed(1) + ' s',
+              distance: outageDist.toFixed(0) + ' m',
+              finalDriftM: err.toFixed(2) + ' m',
+              driftPercent: pct + '%',
+              status: 'IN PROGRESS'
+            });
+          } else if (pt.mode === 3 && simStateRef.current.outageFrames > 0 && !simStateRef.current.outageCompleted) {
+            simStateRef.current.outageCompleted = true;
+            setOutageMetrics((prev) => prev ? { ...prev, status: 'BOUNDED BY IEKF' } : null);
           }
 
           // Trigger log events on mode transitions
@@ -332,6 +368,8 @@ export default function App() {
       isRunning: false,
       playbackSpeed: playbackSpeed,
       outageFrames: 0,
+      outageStartDist: 0,
+      outageCompleted: false,
     };
     setCurrentIdx(0);
     setCumulativeDist(0);
@@ -341,6 +379,7 @@ export default function App() {
     setDriftY(0);
     setBlackoutDuration(0);
     setCurrentMode(1);
+    setOutageMetrics(null);
     addLogMsg('SIMULATION RESET TO FRAME 0.', 'normal');
     if (telemetryData) updateMapPaths(0, telemetryData);
   };
@@ -513,14 +552,26 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>OUTAGE-001</td>
-                    <td>60.0 s</td>
-                    <td>{(cumulativeDist).toFixed(0)} m</td>
-                    <td>{errorM.toFixed(2)} m</td>
-                    <td>{driftPercent}%</td>
-                    <td><span className="badge-text success">BOUNDED BY IEKF</span></td>
-                  </tr>
+                  {outageMetrics ? (
+                    <tr>
+                      <td>OUTAGE-001</td>
+                      <td>{outageMetrics.duration}</td>
+                      <td>{outageMetrics.distance}</td>
+                      <td>{outageMetrics.finalDriftM}</td>
+                      <td>{outageMetrics.driftPercent}</td>
+                      <td>
+                        <span className={`badge-text ${outageMetrics.status === 'IN PROGRESS' ? 'warning' : 'success'}`}>
+                          {outageMetrics.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '1rem', color: '#888' }}>
+                        Waiting for GNSS signal loss event...
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
