@@ -75,9 +75,30 @@ Check the `output/` directory for the exported outputs:
   * AI Dead Reckoning trajectory (Red)
   * Landmark markers and dynamic metric summary card (Blackout Duration, Cumulative Distance, Final Error E, Drift %)
 
+## 4. Running the Interactive Dashboard (Frontend & API)
+
+We have built a modern React dashboard to visualize the 2D vehicle trajectory, active operational modes, and real-time drift telemetry, powered by a FastAPI backend.
+
+### Step 1: Start the Backend API
+From the root directory, start the FastAPI server to serve the telemetry data:
+```bash
+pip install fastapi uvicorn
+uvicorn api:app --reload --port 8000
+```
+*The API will run at `http://localhost:8000` and serve telemetry endpoints bridging `output/results.npz`.*
+
+### Step 2: Start the React Frontend
+Open a new terminal window, navigate to the `frontend` directory, and start the Vite development server:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+*The dashboard will be available in your browser (usually at `http://localhost:5173`). It features a fully responsive design, a mobile device simulator toggle, a dark-mode Cartesian tracking map, and an interactive 3D WebGL tunnel sequence.*
+
 ---
 
-## 4. Team Action Items & Next Steps
+## 5. Team Action Items & Next Steps
 
 ### 📂 Dataset Team
 * **Full Ingestion:** Download the complete categorized IO-VNBD dataset into the `data/` folder (encompassing diverse driving sessions, vehicle types, and mounting positions).
@@ -89,5 +110,6 @@ Check the `output/` directory for the exported outputs:
 * **Drift Benchmark:** Wire the trained weights into `src/main_iovnbd.py` to replace baseline initialization, driving translational blackout drift below the < 10% benchmark target.
 
 ### 💻 Frontend Team
-* **Interactive UI:** Construct a modern React dashboard to visualize the 2D vehicle trajectory, active operational mode, and drift telemetry.
-* **Simulation Bridge:** Expose a lightweight backend API (FastAPI or Flask) wrapping `src/main_iovnbd.py` to trigger GNSS outage scenarios on demand and stream state estimation arrays to the client.
+* **Completed:** Constructed a modern, responsive React dashboard visualizing the 2D vehicle trajectory, active operational mode, and drift telemetry.
+* **Completed:** Implemented a FastAPI backend bridging `results.npz` outputs to the client.
+* **Next Steps:** Integrate real-time WebSockets to stream incoming sensor data continuously during live hardware tests, and expand the 3D WebGL visualizations.
